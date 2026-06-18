@@ -1007,7 +1007,7 @@ class ChatRequest(BaseModel):
     messages: list[Message]
     model: Optional[str]         = None
     stream: bool                 = True
-    temperature: float           = 0.3
+    temperature: float           = 1.0
     max_tokens: int              = 4096
     system_prompt: Optional[str] = None
     carrera: Optional[str]       = None
@@ -1022,6 +1022,8 @@ class ChatRequest(BaseModel):
     raw:           bool          = False  # ← True=sin ningún system prompt (modelo crudo, como Ollama directo)
     num_ctx:       Optional[int] = None   # ← ventana de contexto de Ollama; None usa el default (16384)
     json_output:   bool          = False  # ← forzar salida JSON válida (response_format json_object)
+    top_p:         Optional[float] = None # ← None=default Ollama; 0.95=recomendado Gemma
+    top_k:         Optional[int]   = None # ← None=default Ollama; 64=recomendado Gemma
 
 
 # ──────────────────────────────────────────────────────────────
@@ -1041,7 +1043,9 @@ def _build_payload(messages: list[dict], model: str, stream: bool,
                    web_max_results: int = 5,
                    json_output: bool = False,
                    think: Optional[bool] = None,
-                   num_ctx: Optional[int] = None) -> dict:
+                   num_ctx: Optional[int] = None,
+                   top_p: Optional[float] = None,
+                   top_k: Optional[int] = None) -> dict:
     payload = {
         "model":       model,
         "messages":    messages,
@@ -1066,6 +1070,12 @@ def _build_payload(messages: list[dict], model: str, stream: bool,
             # respuesta se corte a mitad (ej. listados largos de cursos).
             "num_predict": -1,
         }
+        # Parámetros de muestreo opcionales (recomendados para Gemma 4):
+        # top_p=0.95 y top_k=64. Solo se añaden si vienen en la request.
+        if top_p is not None:
+            payload["options"]["top_p"] = top_p
+        if top_k is not None:
+            payload["options"]["top_k"] = top_k
         # En el endpoint OpenAI-compat de Ollama, dejar también max_tokens en el
         # nivel superior puede entrar en conflicto con num_predict y cortar la
         # respuesta antes de tiempo. Como ya controlamos la salida con
@@ -1637,6 +1647,8 @@ async def chat(req: ChatRequest, request: Request):
         json_output=(req.json_output or (req.audit and req.audit_format == "json")),
         think=effective_think,
         num_ctx=req.num_ctx,
+        top_p=req.top_p,
+        top_k=req.top_k,
     )
 
     extra_headers = _build_meta_headers(meta, req.web_search)
@@ -1677,7 +1689,7 @@ async def chat_with_files(
     carrera: Optional[str]        = Form(default=None),
     comision: Optional[str]       = Form(default=None),
     periodo: Optional[str]        = Form(default=None),
-    temperature: float            = Form(default=0.3),
+    temperature: float            = Form(default=1.0),
     max_tokens: int               = Form(default=4096),
     stream: bool                  = Form(default=True),
     use_knowledge: bool           = Form(default=True),
@@ -1689,6 +1701,8 @@ async def chat_with_files(
     raw: bool                     = Form(default=False),
     num_ctx: Optional[int]        = Form(default=None),
     json_output: bool             = Form(default=False),
+    top_p: Optional[float]        = Form(default=None),
+    top_k: Optional[int]          = Form(default=None),
     files: list[UploadFile]       = File(default=[]),
     request: Request              = None,  # type: ignore[assignment]
 ):
@@ -1789,6 +1803,8 @@ async def chat_with_files(
         json_output=(json_output or (audit and audit_format == "json")),
         think=effective_think,
         num_ctx=num_ctx,
+        top_p=top_p,
+        top_k=top_k,
     )
 
     extra_headers = _build_meta_headers(meta, web_search)

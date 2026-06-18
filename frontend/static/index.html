@@ -917,6 +917,34 @@ select.sb-select option:disabled{color:var(--muted-2);}
   font-weight:400;
 }
 
+/* ───────── Panel de parámetros de muestreo ───────── */
+.sampling-chevron{
+  cursor:pointer;font-size:.7rem;color:var(--muted);
+  margin-left:4px;user-select:none;
+}
+.sampling-chevron:hover{color:var(--ink);}
+.sampling-panel{
+  margin-top:6px;display:block;
+}
+.sampling-panel.collapsed{display:none;}
+.sampling-row{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:5px;
+}
+.sampling-lbl{
+  font-size:.72rem;color:var(--muted);font-weight:500;
+}
+.sampling-input{
+  width:72px;padding:3px 6px;border:1px solid #d0d3db;
+  border-radius:5px;font-size:.76rem;font-family:var(--font-mono);
+  text-align:right;background:#fff;color:var(--ink);
+}
+.sampling-input:focus{outline:none;border-color:var(--upc-red);}
+.sampling-hint{
+  font-size:.65rem;color:var(--muted-2);margin-top:4px;
+  font-style:italic;
+}
+
 /* ───────── Modal de Rendimiento (Benchmark) ───────── */
 #benchmark-modal{
   display:none;position:fixed;inset:0;z-index:1000;
@@ -1025,6 +1053,30 @@ select.sb-select option:disabled{color:var(--muted-2);}
       <option value="openai/gpt-oss-120b:free">GPT-OSS 120B (free)</option>
       <option value="z-ai/glm-4.5-air:free">GLM 4.5 Air (free)</option>
     </select>
+  </div>
+
+  <div class="sb-section">
+    <div class="sb-label">Parámetros de muestreo
+      <span id="sampling-toggle" class="sampling-chevron" onclick="toggleSamplingPanel()">▾</span>
+    </div>
+    <div id="sampling-panel" class="sampling-panel">
+      <div class="sampling-row">
+        <label class="sampling-lbl">Temperature</label>
+        <input type="number" id="setting-temperature" class="sampling-input" step="0.05" min="0" max="2"
+          value="1.0" onchange="onSamplingChange()">
+      </div>
+      <div class="sampling-row">
+        <label class="sampling-lbl">Top P</label>
+        <input type="number" id="setting-top-p" class="sampling-input" step="0.01" min="0" max="1"
+          value="0.95" onchange="onSamplingChange()">
+      </div>
+      <div class="sampling-row">
+        <label class="sampling-lbl">Top K</label>
+        <input type="number" id="setting-top-k" class="sampling-input" step="1" min="0" max="1000"
+          value="64" onchange="onSamplingChange()">
+      </div>
+      <div class="sampling-hint">Recomendado para Gemma 4: temp=1, top_p=0.95, top_k=64</div>
+    </div>
   </div>
 
   <div class="sb-section">
@@ -1387,15 +1439,27 @@ let useRaw       = JSON.parse(localStorage.getItem('upc_use_raw')       ?? 'fals
 let useThink     = JSON.parse(localStorage.getItem('upc_use_think')     ?? 'false');
 
 // ──────────────────────────────────────────────────────────────
+// Parámetros de muestreo (recomendados para Gemma 4)
+// ──────────────────────────────────────────────────────────────
+const settings = {
+  temperature: parseFloat(localStorage.getItem('upc_temperature') ?? '1.0'),
+  topP:        parseFloat(localStorage.getItem('upc_top_p')      ?? '0.95'),
+  topK:        parseInt(localStorage.getItem('upc_top_k')        ?? '64', 10),
+};
+
+// ──────────────────────────────────────────────────────────────
 // Inicialización
 // ──────────────────────────────────────────────────────────────
 document.getElementById('toggle-knowledge').checked = useKnowledge;
 document.getElementById('toggle-web').checked       = webSearch;
 document.getElementById('toggle-rag').checked       = useRag;
 document.getElementById('toggle-audit').checked     = useAudit;
-document.getElementById('toggle-raw').checked       = useRaw;
-document.getElementById('toggle-think').checked     = useThink;
+document.getElementById('toggle-raw').checked = useRaw;
+document.getElementById('toggle-think').checked = useThink;
 document.getElementById('audit-format').value       = auditFormat;
+document.getElementById('setting-temperature').value = settings.temperature;
+document.getElementById('setting-top-p').value       = settings.topP;
+document.getElementById('setting-top-k').value       = settings.topK;
 applyModeUI();
 
 renderHistoryList();
@@ -1406,6 +1470,25 @@ checkRagStatus();
 checkAuditStatus();
 checkProvider();
 setupDragAndDrop();
+
+// ──────────────────────────────────────────────────────────────
+// Parámetros de muestreo: UI + persistencia
+// ──────────────────────────────────────────────────────────────
+function toggleSamplingPanel() {
+  const panel = document.getElementById('sampling-panel');
+  const chev  = document.getElementById('sampling-toggle');
+  panel.classList.toggle('collapsed');
+  chev.textContent = panel.classList.contains('collapsed') ? '▸' : '▾';
+}
+
+function onSamplingChange() {
+  settings.temperature = parseFloat(document.getElementById('setting-temperature').value) || 1.0;
+  settings.topP        = parseFloat(document.getElementById('setting-top-p').value)      || null;
+  settings.topK        = parseInt(document.getElementById('setting-top-k').value, 10)   || null;
+  localStorage.setItem('upc_temperature', String(settings.temperature));
+  localStorage.setItem('upc_top_p',      String(settings.topP));
+  localStorage.setItem('upc_top_k',      String(settings.topK));
+}
 
 // ──────────────────────────────────────────────────────────────
 // Modal: Rendimiento de Modelos (Benchmark)
@@ -2718,7 +2801,7 @@ async function sendMessage() {
   fd.append('history',       JSON.stringify(historyToSend));
   fd.append('model',         model);
   fd.append('stream',        'true');
-  fd.append('temperature',   '0.3');
+  fd.append('temperature',   String(settings.temperature));
   fd.append('max_tokens',    '4096');
   fd.append('carrera',       carrera);
   if (periodoActual)  fd.append('periodo',  periodoActual);
@@ -2729,6 +2812,8 @@ async function sendMessage() {
   fd.append('audit',         String(modeAudit));
   fd.append('raw',           String(useRaw));
   fd.append('think',         String(useThink));
+  if (settings.topP !== null) fd.append('top_p', String(settings.topP));
+  if (settings.topK !== null) fd.append('top_k', String(settings.topK));
   if (modeAudit) fd.append('audit_format', auditFormat);
   if (systemPrompt) fd.append('system_prompt', systemPrompt);
   for (const f of filesToSend) fd.append('files', f);
