@@ -11,10 +11,10 @@
 #   - Si el JSON parsea correctamente
 #
 # Modelos probados (configurables):
-#   - qwen2.5:7b   (rápido, buena calidad JSON)
-#   - qwen2.5:14b  (precisión quirúrgica JSON)
-#   - llama3.1:8b  (buen seguimiento de instrucciones)
-#   - gemma4:12b   (baseline, texto libre)
+#   - qwen2.5:7b                              (rápido, buena calidad JSON)
+#   - qwen2.5:14b                             (precisión quirúrgica JSON)
+#   - gemma4:12b                              (baseline, texto libre)
+#   - hf.co/unsloth/gemma-4-12b-it-GGUF:UD-Q4_K_XL  (Gemma 4 12B oficial cuantizado)
 #
 # Uso:
 #   ./deploy/benchmark-models.sh                    # todos los modelos
@@ -33,7 +33,7 @@ LOG_DIR="$PROJECT_DIR/backend/logs"
 OLLAMA_URL="http://localhost:11434/v1"
 TIMEOUT=300
 
-DEFAULT_MODELS="qwen2.5:7b,qwen2.5:14b,llama3.1:8b,gemma4:12b"
+DEFAULT_MODELS="qwen2.5:7b,qwen2.5:14b,gemma4:12b,hf.co/unsloth/gemma-4-12b-it-GGUF:UD-Q4_K_XL"
 MODELS="$DEFAULT_MODELS"
 FORCE_JSON=false
 
