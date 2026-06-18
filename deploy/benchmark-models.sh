@@ -18,9 +18,10 @@
 #
 # Uso:
 #   ./deploy/benchmark-models.sh                    # todos los modelos
-#   ./deploy/benchmark-models.sh --models qwen2.5:7b,llama3.1:8b
+#   ./deploy/benchmark-models.sh --models qwen2.5:7b,qwen2.5:14b
 #   ./deploy/benchmark-models.sh --prompt deploy/malla-test.txt
 #   ./deploy/benchmark-models.sh --json             # forzar json_output
+#   ./deploy/benchmark-models.sh --courses-only     # solo extracción de cursos (sin outcomes)
 #
 # Resultados: backend/logs/benchmark-<timestamp>.jsonl
 # ════════════════════════════════════════════════════════════════════
@@ -36,12 +37,18 @@ TIMEOUT=300
 DEFAULT_MODELS="qwen2.5:7b,qwen2.5:14b,gemma4:12b,hf.co/unsloth/gemma-4-12b-it-GGUF:UD-Q4_K_XL"
 MODELS="$DEFAULT_MODELS"
 FORCE_JSON=false
+COURSES_ONLY=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --models) MODELS="$2"; shift 2 ;;
         --prompt) PROMPT_FILE="$2"; shift 2 ;;
         --json) FORCE_JSON=true; shift ;;
+        --courses-only)
+            COURSES_ONLY=true
+            PROMPT_FILE="$SCRIPT_DIR/malla-test-courses.txt"
+            shift
+            ;;
         --timeout) TIMEOUT="$2"; shift 2 ;;
         *) echo "Opción desconocida: $1"; exit 1 ;;
     esac
@@ -84,6 +91,7 @@ echo "  Benchmark de Modelos — Extracción JSON (Malla COCO)"
 echo "  Fecha: $TS"
 echo "  Prompt: $PROMPT_FILE ($PROMPT_CHARS chars, ~$INPUT_TOKENS tokens)"
 echo "  JSON forzado: $FORCE_JSON"
+echo "  Modo: $([ "$COURSES_ONLY" = true ] && echo 'SOLO CURSOS (sin outcomes)' || echo 'COMPLETO (cursos + outcomes)')"
 echo "  Log: $LOG_FILE"
 echo "══════════════════════════════════════════════════════"
 echo ""
@@ -215,7 +223,7 @@ except Exception as e:
         STATUS="truncated"
     fi
 
-    RESULT="{\"ts\":\"$TS\",\"model\":\"$MODEL\",\"status\":\"$STATUS\",\"latency_ms\":$LATENCY,\"input_tokens\":${OUT_PT:-$INPUT_TOKENS},\"output_tokens\":${OUT_CT:-0},\"tokens_per_sec\":${TPS:-0},\"vram_before_mb\":${VRAM_BEFORE:-null},\"vram_after_mb\":${VRAM_AFTER:-null},\"json_valid\":${JSON_VALID},\"json_keys\":${JSON_KEYS:-0},\"courses_extracted\":${COURSES:-0},\"finish_reason\":\"${FINISH_REASON:-unknown}\",\"truncated\":${TRUNCATED:-false}}"
+    RESULT="{\"ts\":\"$TS\",\"model\":\"$MODEL\",\"mode\":\"$([ "$COURSES_ONLY" = true ] && echo 'courses_only' || echo 'full')\",\"status\":\"$STATUS\",\"latency_ms\":$LATENCY,\"input_tokens\":${OUT_PT:-$INPUT_TOKENS},\"output_tokens\":${OUT_CT:-0},\"tokens_per_sec\":${TPS:-0},\"vram_before_mb\":${VRAM_BEFORE:-null},\"vram_after_mb\":${VRAM_AFTER:-null},\"json_valid\":${JSON_VALID},\"json_keys\":${JSON_KEYS:-0},\"courses_extracted\":${COURSES:-0},\"finish_reason\":\"${FINISH_REASON:-unknown}\",\"truncated\":${TRUNCATED:-false}}"
     echo "$RESULT" >> "$LOG_FILE"
 
     # Reporte en consola
@@ -231,7 +239,7 @@ done
 
 # ── Resumen ──
 echo "══════════════════════════════════════════════════════"
-echo "  Resumen del Benchmark"
+echo "  Resumen del Benchmark — $([ "$COURSES_ONLY" = true ] && echo 'SOLO CURSOS' || echo 'COMPLETO')"
 echo "══════════════════════════════════════════════════════"
 python3 -c "
 import json, sys
