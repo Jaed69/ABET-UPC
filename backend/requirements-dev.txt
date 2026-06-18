@@ -1,0 +1,31 @@
+# ──────────────────────────────────────────────────────────────
+# Dependencias OPCIONALES — RAG + herramientas offline.
+#
+# NO son necesarias para que el backend funcione en producción
+# con knowledge clásico. Instalar solo si se va a activar el
+# sistema RAG o usar los scripts de tools/.
+#
+# Instalar con:  pip install -r requirements-dev.txt
+#
+# Requiere también requirements.txt (este archivo no incluye las
+# deps core). Uso típico:
+#   pip install -r requirements.txt -r requirements-dev.txt
+# ──────────────────────────────────────────────────────────────
+
+# ── RAG (rag/ingest.py, rag/retriever.py) ──
+# Embeddings multilingües + vector store + búsqueda híbrida.
+langchain-chroma==0.2.2
+langchain-huggingface==0.1.2
+chromadb==0.5.23
+sentence-transformers==3.3.1
+rank-bm25==0.2.2
+# Torch en CPU (sin CUDA). En servidor con GPU NVIDIA, usar
+# en su lugar la versión CUDA desde https://pytorch.org/get-started/locally/
+# Ejemplo GPU:  pip install torch --index-url https://download.pytorch.org/whl/cu121
+torch==2.5.1
+
+# ── Tools offline ──
+# tools/build_audit_context.py — conversión PDF/DOCX/XLSX → Markdown.
+markitdown[all]==0.0.1a2
+# tools/eval.py — lee eval_questions.yaml.
+pyyaml==6.0.2
