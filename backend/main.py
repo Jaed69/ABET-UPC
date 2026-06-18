@@ -247,16 +247,22 @@ def discover_carreras() -> dict[str, dict[str, dict[str, dict[str, Path]]]]:
     Estructura devuelta (4 niveles):
         { carrera_key: { periodo_key: { comision_key: { doc_type: Path } } } }
 
-    Layout en disco:
-        knowledge/<carrera>/<periodo>/malla.md                  (comisión única)
-        knowledge/<carrera>/<periodo>/<comision>/malla.md       (con comisiones)
+    Soporta DOS layouts en disco (tolera ambos, incluso mezclados por carrera):
 
-    Ejemplos:
-        knowledge/cc/2025-1/malla.md          → cc, periodo 2025-1, "_default"
-        knowledge/sw/2025-1/eac_sw/malla.md   → sw, periodo 2025-1, comisión eac_sw
+      A) Con nivel de periodo (jerarquía completa):
+         knowledge/<carrera>/<periodo>/malla.md                  (comisión única)
+         knowledge/<carrera>/<periodo>/<comision>/malla.md       (con comisiones)
+         → knowledge/cc/2025-1/malla.md        → cc, 2025-1, "_default"
+         → knowledge/sw/2025-1/eac_sw/malla.md → sw, 2025-1, eac_sw
 
-    El nivel de periodo es obligatorio. Las carreras de comisión única usan
-    la clave "_default". Carpetas que empiezan con '_' (como _base) se ignoran.
+      B) Sin nivel de periodo (malla directamente en la carpeta de carrera):
+         knowledge/<carrera>/malla.md
+         → se trata como periodo virtual "_default", comisión "_default".
+         → knowledge/cc/malla.md → cc, "_default", "_default"
+
+    Carpetas que empiezan con '_' (como _base) se ignoran. Si una carrera
+    tiene .md directos Y subcarpetas de periodo, ambos se incluyen (los
+    directos bajo "_default", las subcarpetas bajo su nombre).
     """
     out: dict[str, dict[str, dict[str, dict[str, Path]]]] = {}
 
@@ -265,9 +271,21 @@ def discover_carreras() -> dict[str, dict[str, dict[str, dict[str, Path]]]]:
             continue
 
         carrera_key = carrera_dir.name.lower()
-
-        # Cada subcarpeta de la carrera es un PERIODO (2025-1, 2025-2, ...).
         periodos: dict[str, dict[str, dict[str, Path]]] = {}
+
+        # Layout B: .md directos en la carpeta de carrera (sin nivel de
+        # periodo) → periodo virtual "_default", comisión "_default".
+        # OJO: solo miramos .md directos, NO subcarpetas (en layout A las
+        # subcarpetas son periodos, no comisiones).
+        direct_files: dict[str, Path] = {}
+        for doc_type, fname in CARRERA_DOC_TYPES.items():
+            fpath = carrera_dir / fname
+            if fpath.exists():
+                direct_files[doc_type] = fpath
+        if direct_files:
+            periodos["_default"] = {"_default": direct_files}
+
+        # Layout A: cada subcarpeta de la carrera es un PERIODO.
         for periodo_dir in sorted(carrera_dir.iterdir()):
             if not periodo_dir.is_dir() or periodo_dir.name.startswith((".", "_")):
                 continue
