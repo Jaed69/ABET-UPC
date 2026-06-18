@@ -1,0 +1,61 @@
+# ──────────────────────────────────────────────────────────────
+# .gitignore — ABET-UPC
+#
+# NOTA: backend/venv/ y backend/.env ya están tracked en el repo
+# (commit "Backup desde el servidor"). Para sacarlos del tracking
+# sin borrarlos del disco, ejecutar:
+#   git rm -r --cached backend/venv backend/.env
+#   git commit -m "Untrack venv y .env"
+#
+# Este .gitignore previene que se vuelvan a añadir, junto con
+# logs, caches y artefactos generados.
+# ──────────────────────────────────────────────────────────────
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+
+# Entornos virtuales
+venv/
+.venv/
+env/
+
+# Variables de entorno (contiene secrets)
+.env
+.env.local
+.env.*.local
+
+# Logs y telemetría generada
+backend/logs/*.jsonl
+backend/logs/*.log
+
+# RAG — artefactos generados (no commitear)
+backend/rag/chroma_db/
+backend/rag/hf_cache/
+
+# Auditoría — datos crudos y convertidos (grandes, regenerables)
+backend/audit_sources/
+backend/audit_knowledge/
+
+# PDFs fuente (grandes, no pertenecen al repo)
+backend/pdfs/
+
+# Resultados de evaluación
+backend/tools/results/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporales
+*.tmp
+*.bak
+*~
