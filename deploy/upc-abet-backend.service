@@ -1,0 +1,44 @@
+[Unit]
+Description=UPC ABET Backend (FastAPI + uvicorn)
+Documentation=https://github.com/Asmodeus/ABET-UPC
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+
+# Usuario dedicado (crear con: sudo useradd -r -s /bin/false -d /opt/upc-abet upc)
+User=upc
+Group=upc
+
+# Directorio del proyecto
+WorkingDirectory=/opt/upc-abet/backend
+
+# venv del proyecto (NO usar --reload en producción)
+ExecStart=/opt/upc-abet/backend/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1
+
+# Variables de entorno
+EnvironmentFile=/opt/upc-abet/backend/.env
+# Ventana de contexto amplia para Ollama (auditoría necesita inputs grandes)
+Environment=OLLAMA_NUM_CTX=32768
+
+# Reinicio automático
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
+# Seguridad: hardening básico
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/upc-abet/backend/logs /opt/upc-abet/backend/rag
+PrivateTmp=true
+
+# Logs a journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=upc-abet-backend
+
+[Install]
+WantedBy=multi-user.target
