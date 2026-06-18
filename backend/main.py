@@ -2,6 +2,7 @@ import io
 import os
 import re
 import json
+import time
 import logging
 import httpx
 import PyPDF2
@@ -1124,16 +1125,22 @@ def _openrouter_headers() -> dict:
 async def _stream_openrouter(
     payload: dict,
     query_log: Optional[QueryLog] = None,
+    retrieval_ms: Optional[int] = None,
+    files_ms: Optional[int] = None,
 ) -> AsyncIterator[str]:
     """Stream del backend → frontend, pasando los chunks de OpenRouter tal cual.
     Adicional:
       - Detecta el objeto `usage` y lo reenvía como evento SSE 'event: usage'.
       - Detecta `annotations` (citas web search) y las reenvía como
         evento SSE 'event: citations' para que el frontend las muestre.
-      - Si se pasa `query_log`, guarda usage en él y lo finaliza al cierre.
+      - Mide TTFT (time to first token) y generation time, y los envía como
+        evento SSE 'event: timing'.
+      - Si se pasa `query_log`, guarda usage y timing en él y lo finaliza al cierre.
     """
     sent_citations = False
     finished = False
+    t_stream_start = time.perf_counter()
+    t_first_token: Optional[float] = None
     try:
         async with httpx.AsyncClient(timeout=600) as client:
             async with client.stream(
@@ -1160,6 +1167,15 @@ async def _stream_openrouter(
                         raw = raw_line[6:].strip()
                         try:
                             obj = json.loads(raw)
+
+                            # ── Detectar primer token de contenido (TTFT) ──
+                            if t_first_token is None:
+                                choices = obj.get("choices", [])
+                                for ch in choices:
+                                    delta = ch.get("delta", {})
+                                    if delta.get("content"):
+                                        t_first_token = time.perf_counter()
+                                        break
 
                             # ── usage (tokens reales) ──
                             usage = obj.get("usage")
@@ -1200,8 +1216,29 @@ async def _stream_openrouter(
 
                     yield f"{raw_line}\n\n"
 
-        # Stream terminó OK
+        # Stream terminó OK — calcular timing y emitir evento
+        t_end = time.perf_counter()
+        ttft_ms = int((t_first_token - t_stream_start) * 1000) if t_first_token else None
+        gen_ms  = int((t_end - t_first_token) * 1000) if t_first_token else None
+        total_ms = int((t_end - t_stream_start) * 1000)
+
+        timing_payload = json.dumps({
+            "retrieval_ms":  retrieval_ms,
+            "files_ms":      files_ms,
+            "ttft_ms":       ttft_ms,
+            "generation_ms": gen_ms,
+            "total_ms":      total_ms,
+        })
+        yield f"event: timing\ndata: {timing_payload}\n\n"
+
         if query_log and not finished:
+            query_log.set_timing(
+                retrieval_ms=retrieval_ms,
+                files_ms=files_ms,
+                ttft_ms=ttft_ms,
+                generation_ms=gen_ms,
+                total_ms=total_ms,
+            )
             query_log.finish(status="success")
             finished = True
 
@@ -1238,7 +1275,7 @@ def _build_meta_headers(meta: dict, web_search: bool) -> dict:
     Los strings se serializan a str() porque algunos servidores ASGI son
     estrictos con tipos no-string en headers."""
     loaded = meta.get("loaded_docs") or []
-    return {
+    headers = {
         "X-Accel-Buffering":     "no",
         "Cache-Control":         "no-cache",
         "X-Loaded-Docs":         ",".join(loaded) if loaded else "none",
@@ -1249,6 +1286,11 @@ def _build_meta_headers(meta: dict, web_search: bool) -> dict:
         "X-Rag-Chunks":          str(meta.get("rag_chunks", 0)),
         "X-Rag-Top-Score":       str(meta.get("rag_top_score", 0.0)),
     }
+    if meta.get("retrieval_ms") is not None:
+        headers["X-Retrieval-Ms"] = str(meta["retrieval_ms"])
+    if meta.get("files_ms") is not None:
+        headers["X-Files-Ms"] = str(meta["files_ms"])
+    return headers
 
 
 # ──────────────────────────────────────────────────────────────
@@ -1270,6 +1312,8 @@ app.add_middleware(
         "X-Rag-Used",
         "X-Rag-Chunks",
         "X-Rag-Top-Score",
+        "X-Retrieval-Ms",
+        "X-Files-Ms",
         "X-Accel-Buffering",
     ],
 )
@@ -1580,9 +1624,11 @@ def get_benchmark_results(latest: bool = True):
 @app.post("/api/chat")
 async def chat(req: ChatRequest, request: Request):
     _check_key()
+    t_request_start = time.perf_counter()
     last_user = next(
         (m.content for m in reversed(req.messages) if m.role == "user"), ""
     )
+    t_retrieval_start = time.perf_counter()
     full_system, meta = build_full_system_prompt(
         user_msg=last_user,
         user_system_prompt=req.system_prompt,
@@ -1595,6 +1641,8 @@ async def chat(req: ChatRequest, request: Request):
         audit_format=req.audit_format,
         raw=req.raw,
     )
+    retrieval_ms = int((time.perf_counter() - t_retrieval_start) * 1000)
+    meta["retrieval_ms"] = retrieval_ms
 
     # ── Iniciar logging del request ──
     chosen_model = req.model or DEFAULT_MODEL
@@ -1655,7 +1703,8 @@ async def chat(req: ChatRequest, request: Request):
 
     if req.stream:
         return StreamingResponse(
-            _stream_openrouter(payload, query_log=query_log),
+            _stream_openrouter(payload, query_log=query_log,
+                               retrieval_ms=retrieval_ms),
             media_type="text/event-stream",
             headers=extra_headers,
         )
@@ -1663,12 +1712,19 @@ async def chat(req: ChatRequest, request: Request):
     # En modo no-stream también devolvemos headers para que clientes API
     # (curl -i, integraciones) puedan leer la metadata.
     try:
+        t_sync_start = time.perf_counter()
         result = await _call_openrouter_sync(payload)
+        t_sync_end = time.perf_counter()
         # Capturar usage del response sincrónico
         usage = result.get("usage") or {}
         query_log.set_usage(
             prompt_tokens=     usage.get("prompt_tokens", 0),
             completion_tokens= usage.get("completion_tokens", 0),
+        )
+        total_ms = int((t_sync_end - t_request_start) * 1000)
+        query_log.set_timing(
+            retrieval_ms=retrieval_ms,
+            total_ms=total_ms,
         )
         query_log.finish(status="success")
         return JSONResponse(content=result, headers=extra_headers)
@@ -1707,6 +1763,7 @@ async def chat_with_files(
     request: Request              = None,  # type: ignore[assignment]
 ):
     _check_key()
+    t_request_start = time.perf_counter()
 
     try:
         raw_history = json.loads(history)
@@ -1722,6 +1779,7 @@ async def chat_with_files(
         if isinstance(m, dict) and m.get("role") in VALID_ROLES
     ]
 
+    t_files_start = time.perf_counter()
     file_blocks: list[str] = []
     for f in files:
         if not f.filename:
@@ -1735,6 +1793,7 @@ async def chat_with_files(
             )
         extracted = extract_text(f.filename, data)
         file_blocks.append(f"### Archivo: {f.filename}\n\n{extracted}")
+    files_ms = int((time.perf_counter() - t_files_start) * 1000) if files else None
 
     parts: list[str] = []
     if message.strip():
@@ -1747,6 +1806,7 @@ async def chat_with_files(
 
     user_content = "\n\n".join(parts)
 
+    t_retrieval_start = time.perf_counter()
     full_system, meta = build_full_system_prompt(
         user_msg=message,
         user_system_prompt=system_prompt,
@@ -1760,6 +1820,10 @@ async def chat_with_files(
         audit_format=audit_format,
         raw=raw,
     )
+    retrieval_ms = int((time.perf_counter() - t_retrieval_start) * 1000)
+    meta["retrieval_ms"] = retrieval_ms
+    if files_ms is not None:
+        meta["files_ms"] = files_ms
 
     # ── Iniciar logging del request ──
     chosen_model = model or DEFAULT_MODEL
@@ -1811,17 +1875,27 @@ async def chat_with_files(
 
     if stream:
         return StreamingResponse(
-            _stream_openrouter(payload, query_log=query_log),
+            _stream_openrouter(payload, query_log=query_log,
+                               retrieval_ms=retrieval_ms,
+                               files_ms=files_ms),
             media_type="text/event-stream",
             headers=extra_headers,
         )
 
     try:
+        t_sync_start = time.perf_counter()
         result = await _call_openrouter_sync(payload)
+        t_sync_end = time.perf_counter()
         usage = result.get("usage") or {}
         query_log.set_usage(
             prompt_tokens=     usage.get("prompt_tokens", 0),
             completion_tokens= usage.get("completion_tokens", 0),
+        )
+        total_ms = int((t_sync_end - t_request_start) * 1000)
+        query_log.set_timing(
+            retrieval_ms=retrieval_ms,
+            files_ms=files_ms,
+            total_ms=total_ms,
         )
         query_log.finish(status="success")
         return JSONResponse(content=result, headers=extra_headers)

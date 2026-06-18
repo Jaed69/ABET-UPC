@@ -138,6 +138,14 @@ class QueryLog:
         self.rag_chunks: int = 0
         self.rag_top_score: float = 0.0
 
+        # Timing (en ms) — medidos por el handler y el stream
+        self.retrieval_ms:  Optional[int] = None
+        self.files_ms:      Optional[int] = None
+        self.ttft_ms:       Optional[int] = None
+        self.generation_ms: Optional[int] = None
+        self.total_ms:      Optional[int] = None
+        self.tokens_per_sec: Optional[float] = None
+
     def set_rag_info(self, chunks: int, top_score: float) -> None:
         self.rag_chunks    = chunks
         self.rag_top_score = top_score
@@ -145,6 +153,24 @@ class QueryLog:
     def set_usage(self, prompt_tokens: int, completion_tokens: int) -> None:
         self.prompt_tokens     = prompt_tokens
         self.completion_tokens = completion_tokens
+
+    def set_timing(
+        self,
+        *,
+        retrieval_ms:  Optional[int] = None,
+        files_ms:      Optional[int] = None,
+        ttft_ms:       Optional[int] = None,
+        generation_ms: Optional[int] = None,
+        total_ms:      Optional[int] = None,
+    ) -> None:
+        if retrieval_ms  is not None: self.retrieval_ms  = retrieval_ms
+        if files_ms      is not None: self.files_ms      = files_ms
+        if ttft_ms       is not None: self.ttft_ms       = ttft_ms
+        if generation_ms is not None: self.generation_ms = generation_ms
+        if total_ms      is not None: self.total_ms      = total_ms
+        # Calcular tokens/segundo si tenemos ambos datos
+        if self.completion_tokens and self.generation_ms and self.generation_ms > 0:
+            self.tokens_per_sec = round(self.completion_tokens / (self.generation_ms / 1000.0), 1)
 
     def finish(self, status: str = "success", error: Optional[str] = None) -> None:
         """Cierra el log y lo persiste."""
@@ -169,6 +195,12 @@ class QueryLog:
             "rag_chunks":       self.rag_chunks,
             "rag_top_score":    self.rag_top_score,
             "latency_ms":       latency_ms,
+            "retrieval_ms":     self.retrieval_ms,
+            "files_ms":         self.files_ms,
+            "ttft_ms":          self.ttft_ms,
+            "generation_ms":    self.generation_ms,
+            "total_ms":         self.total_ms,
+            "tokens_per_sec":   self.tokens_per_sec,
             "status":           status,
             "error":            error,
             "client_ip":        self.client_ip,
@@ -285,6 +317,22 @@ def compute_stats(
         if r.get("status") == "success" and isinstance(r.get("latency_ms"), (int, float))
     ]
 
+    # Timing detallado (solo de exitosos)
+    def _extract(field: str) -> list[float]:
+        return [
+            r[field] for r in records
+            if r.get("status") == "success" and isinstance(r.get(field), (int, float))
+        ]
+
+    ttfts       = _extract("ttft_ms")
+    generations = _extract("generation_ms")
+    totals      = _extract("total_ms")
+    retrievals  = _extract("retrieval_ms")
+    tps_values  = [r["tokens_per_sec"] for r in records
+                   if r.get("status") == "success"
+                   and isinstance(r.get("tokens_per_sec"), (int, float))
+                   and r.get("tokens_per_sec", 0) > 0]
+
     # Hashes de queries únicos (estimación de unicidad)
     unique_queries = len({r.get("query_hash") for r in records if r.get("query_hash")})
 
@@ -325,6 +373,33 @@ def compute_stats(
             "p99": int(_percentile(latencies, 99)) if latencies else None,
             "max": max(latencies) if latencies else None,
             "avg": int(sum(latencies) / len(latencies)) if latencies else None,
+        },
+
+        "timing": {
+            "ttft_ms": {
+                "p50": int(_percentile(ttfts, 50)) if ttfts else None,
+                "p95": int(_percentile(ttfts, 95)) if ttfts else None,
+                "avg":  int(sum(ttfts) / len(ttfts)) if ttfts else None,
+            },
+            "generation_ms": {
+                "p50": int(_percentile(generations, 50)) if generations else None,
+                "p95": int(_percentile(generations, 95)) if generations else None,
+                "avg":  int(sum(generations) / len(generations)) if generations else None,
+            },
+            "total_ms": {
+                "p50": int(_percentile(totals, 50)) if totals else None,
+                "p95": int(_percentile(totals, 95)) if totals else None,
+                "avg":  int(sum(totals) / len(totals)) if totals else None,
+            },
+            "retrieval_ms": {
+                "p50": int(_percentile(retrievals, 50)) if retrievals else None,
+                "avg":  int(sum(retrievals) / len(retrievals)) if retrievals else None,
+            },
+            "tokens_per_sec": {
+                "avg": round(sum(tps_values) / len(tps_values), 1) if tps_values else None,
+                "min": round(min(tps_values), 1) if tps_values else None,
+                "max": round(max(tps_values), 1) if tps_values else None,
+            },
         },
 
         "top_repeated_queries": top_repeated,

@@ -2822,7 +2822,10 @@ async function sendMessage() {
   let routerInfo   = null;
   let usageInfo    = null;
   let citations    = null;
+  let timingInfo   = null;
   let firstChunk   = true;
+  const t0         = performance.now();
+  let tFirstToken  = 0;
 
   try {
     const resp = await fetch(`${API_BASE}/api/chat/with-files`, {
@@ -2833,34 +2836,43 @@ async function sendMessage() {
       throw new Error(err?.detail || `HTTP ${resp.status}`);
     }
 
-    const sysTokens   = resp.headers.get('X-System-Tokens-Aprox');
-    const loadedDocs  = resp.headers.get('X-Loaded-Docs');
-    const headMode    = resp.headers.get('X-Mode') || (modeKnowledge ? 'knowledge' : 'general');
-    const headWeb     = resp.headers.get('X-Web-Search') === '1';
-    const headRag     = resp.headers.get('X-Rag-Used') === '1';
-    const headRagN    = parseInt(resp.headers.get('X-Rag-Chunks') || '0', 10) || 0;
+    const sysTokens       = resp.headers.get('X-System-Tokens-Aprox');
+    const loadedDocs      = resp.headers.get('X-Loaded-Docs');
+    const headMode        = resp.headers.get('X-Mode') || (modeKnowledge ? 'knowledge' : 'general');
+    const headWeb         = resp.headers.get('X-Web-Search') === '1';
+    const headRag         = resp.headers.get('X-Rag-Used') === '1';
+    const headRagN        = parseInt(resp.headers.get('X-Rag-Chunks') || '0', 10) || 0;
+    const headRetrievalMs = resp.headers.get('X-Retrieval-Ms');
+    const headFilesMs     = resp.headers.get('X-Files-Ms');
 
     if (sysTokens) {
-      routerInfo = { sysTokens, loadedDocs, mode: headMode, webSearch: headWeb, ragUsed: headRag, ragChunks: headRagN };
+      routerInfo = {
+        sysTokens, loadedDocs, mode: headMode, webSearch: headWeb,
+        ragUsed: headRag, ragChunks: headRagN,
+        retrievalMs: headRetrievalMs ? parseInt(headRetrievalMs, 10) : null,
+        filesMs:     headFilesMs     ? parseInt(headFilesMs, 10)     : null,
+      };
       updateTokensBadge({ sys: sysTokens, loadedDocs });
     }
 
     stepDone('think');
+    const retrievalMsLabel = headRetrievalMs ? ` · ${fmtMs(parseInt(headRetrievalMs, 10))}` : '';
     if (modeAudit) {
       const docsLabel = (loadedDocs && loadedDocs !== 'none') ? loadedDocs : 'contexto carrera';
-      stepDone('kb', `${sysTokens || '?'} tk · ${docsLabel}`);
+      stepDone('kb', `${sysTokens || '?'} tk · ${docsLabel}${retrievalMsLabel}`);
     } else if (modeKnowledge) {
       let kbMeta;
       if (headRag || modeRag) {
-        kbMeta = `${headRagN} chunks · ${sysTokens || '?'} tk`;
+        kbMeta = `${headRagN} chunks · ${sysTokens || '?'} tk${retrievalMsLabel}`;
       } else {
         const docsLabel = (loadedDocs && loadedDocs !== 'none') ? loadedDocs : 'solo base';
-        kbMeta = `${sysTokens || '?'} tk · ${docsLabel}`;
+        kbMeta = `${sysTokens || '?'} tk · ${docsLabel}${retrievalMsLabel}`;
       }
       stepDone('kb', kbMeta);
     }
     if (filesToSend.length) {
-      stepDone('files', `${filesToSend.length} archivo(s)`);
+      const filesMsLabel = headFilesMs ? ` · ${fmtMs(parseInt(headFilesMs, 10))}` : '';
+      stepDone('files', `${filesToSend.length} archivo(s)${filesMsLabel}`);
     }
     if (modeWebSearch) {
       stepActive('web');
@@ -2911,6 +2923,13 @@ async function sendMessage() {
           continue;
         }
 
+        if (currentEvent === 'timing') {
+          try {
+            timingInfo = JSON.parse(raw);
+          } catch (e) {}
+          continue;
+        }
+
         if (raw === '[DONE]') continue;
         if (raw.startsWith('[ERROR]')) throw new Error(raw.slice(7).trim());
 
@@ -2920,6 +2939,7 @@ async function sendMessage() {
           if (delta) {
             if (firstChunk) {
               firstChunk = false;
+              tFirstToken = performance.now();
               stepDone('gen');
               setTimeout(() => {
                 if (stepsBox.isConnected) stepsBox.remove();
@@ -2988,9 +3008,24 @@ async function sendMessage() {
       else if (routerInfo.mode === 'general')   parts.push('· modo general');
       else if (routerInfo.ragUsed)              parts.push(`· 🔬 RAG (${routerInfo.ragChunks} chunks)`);
       else if (routerInfo.loadedDocs && routerInfo.loadedDocs !== 'none')
-                                                parts.push(`· ${routerInfo.loadedDocs}`);
+                                                 parts.push(`· ${routerInfo.loadedDocs}`);
       else                                       parts.push('· solo base');
       if (routerInfo.webSearch)                 parts.push('· 🌐 web');
+    }
+    // ── Timing: TTFT → generation → total + tokens/sec ──
+    if (timingInfo || tFirstToken) {
+      const ttftMs  = tFirstToken ? Math.round(tFirstToken - t0) : (timingInfo?.ttft_ms ?? null);
+      const genMs   = timingInfo?.generation_ms ?? null;
+      const totalMs = timingInfo?.total_ms ?? Math.round(performance.now() - t0);
+      const tps     = (timingInfo?.generation_ms && usageInfo?.completion_tokens)
+        ? Math.round(usageInfo.completion_tokens / (timingInfo.generation_ms / 1000))
+        : null;
+      const segs = [];
+      if (ttftMs  !== null) segs.push(`⏱ ${fmtMs(ttftMs)}`);
+      if (genMs   !== null) segs.push(`→ ${fmtMs(genMs)}`);
+      if (totalMs !== null) segs.push(`(${fmtMs(totalMs)})`);
+      if (tps     !== null) segs.push(`· ${tps} tok/s`);
+      if (segs.length) parts.push('· ' + segs.join(' '));
     }
     ai.metaEl.textContent = parts.join(' ');
   }
@@ -3001,6 +3036,7 @@ async function sendMessage() {
     routerInfo,
     usageInfo,
     citations,
+    timingInfo,
     auditFormat: modeAudit ? auditFormat : null,
   });
   persistChat(model, systemPrompt, carrera);
@@ -3014,6 +3050,12 @@ async function sendMessage() {
 
 function escAttr(s) {
   return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+}
+
+function fmtMs(ms) {
+  if (ms == null) return '?';
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 function stopGeneration() { if (abortCtrl) abortCtrl.abort(); }
@@ -3125,6 +3167,19 @@ function loadChat(id) {
       else if (m.routerInfo.ragUsed) parts.push(`· 🔬 RAG (${m.routerInfo.ragChunks || 0} chunks)`);
       else                                  parts.push(`· ${docsLabel}`);
       if (m.routerInfo.webSearch) parts.push('· 🌐 web');
+      // ── Timing desde historial persistido ──
+      if (m.timingInfo) {
+        const ti = m.timingInfo;
+        const tps = (ti.generation_ms && m.usageInfo?.completion_tokens)
+          ? Math.round(m.usageInfo.completion_tokens / (ti.generation_ms / 1000))
+          : null;
+        const segs = [];
+        if (ti.ttft_ms       !== null) segs.push(`⏱ ${fmtMs(ti.ttft_ms)}`);
+        if (ti.generation_ms !== null) segs.push(`→ ${fmtMs(ti.generation_ms)}`);
+        if (ti.total_ms      !== null) segs.push(`(${fmtMs(ti.total_ms)})`);
+        if (tps              !== null) segs.push(`· ${tps} tok/s`);
+        if (segs.length) parts.push('· ' + segs.join(' '));
+      }
       metaStr = parts.join(' ');
     }
     const ui = appendMessage(m.role, m.content, m.fileNames || [], metaStr);
