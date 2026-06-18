@@ -17,6 +17,7 @@ Asistente de IA institucional para la **verificación y control de outcomes ABET
 9. [Modos de operación](#modos-de-operación)
 10. [Troubleshooting](#troubleshooting)
 11. [Activación opcional del RAG](#activación-opcional-del-rag)
+12. [Benchmark de modelos](#benchmark-de-modelos)
 
 ---
 
@@ -119,6 +120,9 @@ ABET-UPC/
 │       └── upc-logo-white.png
 └── deploy/                      # Artefactos de despliegue
     ├── switch-model.sh          # Cambio de modelo Ollama en caliente
+    ├── benchmark-models.sh      # Benchmark comparativo de modelos (JSON, VRAM, tok/s)
+    ├── ollama-tune.sh           # Tuning automático de Ollama según VRAM
+    ├── malla-test.txt           # Prompt de prueba (malla COCO SI) para benchmark
     ├── upc-abet-backend.service # Systemd unit del backend
     ├── nginx-acc-ia.conf        # Nginx reverse proxy + SSE
     ├── health-check.sh          # Healthcheck periódico + auto-restart
@@ -319,13 +323,73 @@ El backend no soporta cambiar de modelo en runtime — siempre requiere reinicia
 
 ### Modelos recomendados
 
-| Modelo | VRAM (Q4) | Velocidad | Calidad | Cuándo usar |
+| Modelo | VRAM (Q4) | Tokens/seg (L4) | Calidad JSON | Cuándo usar |
 |---|---|---|---|---|
-| `qwen2.5:7b` | ~4.5 GB | Rápida | Buena | Consultas rápidas, respuestas cortas |
-| `llama3.1:8b` | ~5 GB | Rápida | Buena | Alternativa balanceada |
-| `gemma4:12b` | ~7 GB | Media | Alta | Default, auditoría, respuestas detalladas |
+| `qwen2.5:7b` | ~5 GB | ~70-90 | Excelente | Consultas rápidas, respuestas cortas, chat interactivo |
+| `llama3.1:8b` | ~6 GB | ~60-80 | Muy buena | Alternativa balanceada, buen seguimiento de instrucciones |
+| **`qwen2.5:14b`** | ~9 GB | ~35-45 | **Quirúrgica** | **Extracción JSON, auditoría, análisis de mallas (recomendado con 24GB)** |
+| `gemma4:12b` | ~7 GB | ~25 | Regular | Solo texto libre/conversación (NO recomendado para JSON) |
+
+### Guía de selección según tarea
+
+| Tarea | Modelo recomendado | Motivo |
+|---|---|---|
+| **Extracción JSON estructurada** (mallas COCO) | `qwen2.5:14b` | Precisión casi perfecta en JSON, no se salta llaves/corchetes |
+| **Auditoría con adjuntos grandes** | `qwen2.5:14b` | 128k context, precisión quirúrgica, maneja inputs grandes |
+| **Chat rápido / respuestas cortas** | `qwen2.5:7b` | Más rápido, buena calidad para texto libre |
+| **Conversación general** | `gemma4:12b` o `llama3.1:8b` | Buen estilo natural en texto libre |
+| **Servidor con poca VRAM (8GB)** | `qwen2.5:7b` | Cabe en 5GB, deja margen para contexto |
+| **Servidor con 16GB+ VRAM** | `qwen2.5:14b` | Mejor calidad, VRAM de sobra |
+
+> **Sobre `gemma-4-12B-it-heretic-GGUF`**: es una variante "uncensored" de Gemma 4 12B. Para extracción de datos académicos **no aporta ventaja** — misma velocidad (mismo tamaño) y el fine-tuning puede empeorar el seguimiento de instrucciones estrictas. No recomendado para JSON estructurado.
 
 > **Sin GPU**: usar `qwen2.5:7b` o modelos menores. 16GB RAM sin GPU no soporta 12B cómodamente.
+
+### Benchmark de modelos
+
+Para comparar el rendimiento real de los modelos en tu hardware:
+
+```bash
+# 1. Pre-pullear los modelos a comparar
+ollama pull qwen2.5:7b qwen2.5:14b llama3.1:8b
+
+# 2. Ejecutar el benchmark (con JSON forzado para probar extracción)
+./deploy/benchmark-models.sh --json
+
+# 3. Ver resultados en el panel "Rendimiento de modelos" del frontend
+#    (botón en el sidebar, abajo de "Instrucción adicional")
+```
+
+El benchmark mide por cada modelo:
+- **Tokens/seg** de generación (velocidad)
+- **Latencia total** (tiempo hasta respuesta completa)
+- **Validez del JSON** (si parsea correctamente)
+- **Cursos extraídos** (precisión de la extracción)
+- **VRAM usada** (consumo de memoria GPU)
+
+Los resultados se guardan en `backend/logs/benchmark-<timestamp>.jsonl` y se visualizan en el frontend con barras comparativas de velocidad y badges de validez JSON.
+
+### Tuning de Ollama según VRAM
+
+```bash
+# Detectar VRAM y aplicar parámetros óptimos automáticamente
+./deploy/ollama-tune.sh
+
+# Forzar VRAM manual (ej. 24000 MB para L4)
+./deploy/ollama-tune.sh --vram 24000
+
+# Ver config actual
+./deploy/ollama-tune.sh --show
+
+# Revertir a config default
+./deploy/ollama-tune.sh --reset
+```
+
+Parámetros que aplica según VRAM:
+- `OLLAMA_KEEP_ALIVE=30m` — mantiene el modelo cargado 30 min (evita recargas entre requests)
+- `OLLAMA_NUM_PARALLEL=1` — 1 request a la vez (máxima VRAM por request = más rápido)
+- `OLLAMA_MAX_LOADED_MODELS` — 2 si hay 20GB+, 1 si menos
+- `OLLAMA_FLASH_ATTENTION=1` — aceleración si la GPU lo soporta
 
 ### Cambio manual (sin script)
 
@@ -420,6 +484,7 @@ ollama rm <modelo-no-usado>
 | GET | `/api/preview-prompt` | Debug: ve qué system prompt se armaría |
 | GET | `/api/stats` | Agregados del log (totales, latencia p50/p95/p99) |
 | GET | `/api/logs/recent` | Últimos N registros del log |
+| GET | `/api/benchmark/results` | Resultados del benchmark de modelos |
 | POST | `/api/chat` | **Chat principal** (JSON, stream o no-stream) |
 | POST | `/api/chat/with-files` | Chat con archivos adjuntos (multipart) |
 

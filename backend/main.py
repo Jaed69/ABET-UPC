@@ -1519,6 +1519,54 @@ def get_logs_recent(limit: int = 50):
     }
 
 
+@app.get("/api/benchmark/results")
+def get_benchmark_results(latest: bool = True):
+    """Devuelve los resultados del benchmark de modelos.
+
+    Lee los archivos logs/benchmark-*.jsonl generados por
+    deploy/benchmark-models.sh. Si latest=True (default), devuelve
+    solo el benchmark más reciente; si False, devuelve todos.
+
+    El frontend lo usa para mostrar el panel de rendimiento comparativo
+    de modelos (tokens/seg, latencia, validez JSON, VRAM).
+    """
+    import glob
+    bench_dir = LOGS_DIR
+    files = sorted(glob.glob(str(bench_dir / "benchmark-*.jsonl")))
+    if not files:
+        return {
+            "available": False,
+            "reason": "No hay benchmarks. Ejecutar: ./deploy/benchmark-models.sh",
+            "results": [],
+        }
+
+    results = []
+    if latest:
+        files = files[-1:]
+
+    for fpath in files:
+        try:
+            with open(fpath, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        import json as _json
+                        results.append(_json.loads(line))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    return {
+        "available":   len(results) > 0,
+        "count":       len(results),
+        "results":     results,
+        "source_file": files[-1].split("/")[-1] if files else None,
+    }
+
+
 @app.post("/api/chat")
 async def chat(req: ChatRequest, request: Request):
     _check_key()

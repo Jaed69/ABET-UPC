@@ -916,6 +916,83 @@ select.sb-select option:disabled{color:var(--muted-2);}
   font-size:.68rem;color:var(--muted);
   font-weight:400;
 }
+
+/* ───────── Modal de Rendimiento (Benchmark) ───────── */
+#benchmark-modal{
+  display:none;position:fixed;inset:0;z-index:1000;
+  background:rgba(10,12,16,.55);backdrop-filter:blur(4px);
+  align-items:center;justify-content:center;
+}
+#benchmark-modal.active{display:flex;}
+.bm-card{
+  background:#fff;border-radius:14px;width:760px;max-width:92vw;
+  max-height:86vh;overflow-y:auto;box-shadow:0 24px 60px rgba(0,0,0,.22);
+}
+.bm-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:16px 22px;border-bottom:1px solid #eee;position:sticky;top:0;
+  background:#fff;z-index:1;border-radius:14px 14px 0 0;
+}
+.bm-title{font-size:1.05rem;font-weight:700;color:var(--ink);}
+.bm-subtitle{font-size:.72rem;color:var(--muted);margin-top:2px;}
+.bm-close{
+  background:none;border:none;cursor:pointer;font-size:1.3rem;
+  color:var(--muted);padding:4px 8px;border-radius:6px;
+}
+.bm-close:hover{background:#f0f0f0;color:var(--ink);}
+.bm-body{padding:18px 22px 24px;}
+.bm-info-bar{
+  display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;
+  font-size:.75rem;color:var(--muted);
+}
+.bm-info-bar span{display:inline-flex;align-items:center;gap:5px;}
+.bm-empty{
+  text-align:center;padding:40px 20px;color:var(--muted);
+  font-size:.85rem;line-height:1.6;
+}
+.bm-empty code{
+  background:#f4f4f4;padding:2px 6px;border-radius:4px;
+  font-size:.78rem;font-family:var(--font-mono);
+}
+.bm-table{width:100%;border-collapse:collapse;font-size:.8rem;}
+.bm-table th{
+  text-align:left;padding:8px 10px;border-bottom:2px solid #eee;
+  font-weight:600;color:var(--ink);font-size:.74rem;
+  text-transform:uppercase;letter-spacing:.04em;
+}
+.bm-table td{padding:9px 10px;border-bottom:1px solid #f4f4f4;vertical-align:middle;}
+.bm-table tr:hover td{background:#fafafa;}
+.bm-model-name{font-weight:600;font-family:var(--font-mono);font-size:.82rem;}
+.bm-bar-wrap{display:flex;align-items:center;gap:8px;}
+.bm-bar{
+  height:7px;border-radius:4px;background:#e8e8e8;min-width:50px;
+  position:relative;overflow:hidden;
+}
+.bm-bar-fill{
+  height:100%;border-radius:4px;
+  background:linear-gradient(90deg,#22c55e,#16a34a);
+  transition:width .5s ease;
+}
+.bm-bar-fill.warn{background:linear-gradient(90deg,#f59e0b,#d97706);}
+.bm-bar-fill.slow{background:linear-gradient(90deg,#ef4444,#dc2626);}
+.bm-bar-num{font-size:.72rem;font-family:var(--font-mono);color:var(--ink);min-width:48px;}
+.bm-badge{
+  display:inline-block;padding:2px 8px;border-radius:10px;
+  font-size:.7rem;font-weight:600;
+}
+.bm-badge.ok{background:#dcfce7;color:#166534;}
+.bm-badge.bad{background:#fee2e2;color:#991b1b;}
+.bm-badge.muted{background:#f3f4f6;color:#6b7280;}
+.bm-actions{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;}
+.bm-btn{
+  padding:8px 16px;border-radius:8px;border:1px solid #ddd;
+  background:#fff;cursor:pointer;font-size:.8rem;font-weight:500;
+  color:var(--ink);transition:all .15s;
+}
+.bm-btn:hover{background:#f8f8f8;border-color:#bbb;}
+.bm-btn.primary{background:var(--upc-red);color:#fff;border-color:var(--upc-red);}
+.bm-btn.primary:hover{background:#c40512;}
+.bm-refresh-note{font-size:.72rem;color:var(--muted);margin-top:10px;}
 </style>
 </head>
 <body>
@@ -1063,6 +1140,17 @@ select.sb-select option:disabled{color:var(--muted-2);}
       placeholder="Ej: Enfócate solo en outcomes 1 y 2..."></textarea>
   </div>
 
+  <button id="benchmark-btn" onclick="openBenchmarkModal()" style="
+    margin-top:8px;padding:7px 12px;border:1px solid #ddd;border-radius:8px;
+    background:#fff;cursor:pointer;font-size:.76rem;font-weight:500;
+    color:var(--ink);display:flex;align-items:center;gap:7px;transition:all .15s;
+  " onmouseover="this.style.background='#f8f8f8'" onmouseout="this.style.background='#fff'">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 5-9"/>
+    </svg>
+    Rendimiento de modelos
+  </button>
+
   <div class="sb-section" style="border-bottom:none;margin-top:4px;">
     <div class="sb-label">Historial</div>
   </div>
@@ -1173,6 +1261,22 @@ select.sb-select option:disabled{color:var(--muted-2);}
     <div class="drop-icon">📥</div>
     <div class="drop-title">Suelta los archivos aquí</div>
     <div class="drop-sub">PDF · DOCX · TXT · MD · CSV · JSON</div>
+  </div>
+</div>
+
+<!-- ────────── Modal: Rendimiento de Modelos ────────── -->
+<div id="benchmark-modal">
+  <div class="bm-card">
+    <div class="bm-header">
+      <div>
+        <div class="bm-title">Rendimiento de Modelos</div>
+        <div class="bm-subtitle">Comparativa de velocidad, calidad JSON y uso de VRAM</div>
+      </div>
+      <button class="bm-close" onclick="closeBenchmarkModal()">&times;</button>
+    </div>
+    <div class="bm-body" id="benchmark-body">
+      <div class="bm-empty">Cargando resultados...</div>
+    </div>
   </div>
 </div>
 
@@ -1302,6 +1406,144 @@ checkRagStatus();
 checkAuditStatus();
 checkProvider();
 setupDragAndDrop();
+
+// ──────────────────────────────────────────────────────────────
+// Modal: Rendimiento de Modelos (Benchmark)
+// ──────────────────────────────────────────────────────────────
+function openBenchmarkModal() {
+  document.getElementById('benchmark-modal').classList.add('active');
+  fetchBenchmarkResults();
+}
+
+function closeBenchmarkModal() {
+  document.getElementById('benchmark-modal').classList.remove('active');
+}
+
+// Cerrar modal con Escape o click fuera
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeBenchmarkModal();
+});
+document.getElementById('benchmark-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'benchmark-modal') closeBenchmarkModal();
+});
+
+async function fetchBenchmarkResults() {
+  const body = document.getElementById('benchmark-body');
+  body.innerHTML = '<div class="bm-empty">Cargando resultados...</div>';
+  try {
+    const r = await fetch(`${API_BASE}/api/benchmark/results?latest=true`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    renderBenchmarkResults(data);
+  } catch (e) {
+    body.innerHTML = `<div class="bm-empty">Error al cargar: ${e.message}<br><br>
+      Verifica que el backend esté activo.</div>`;
+  }
+}
+
+function renderBenchmarkResults(data) {
+  const body = document.getElementById('benchmark-body');
+
+  if (!data.available || !data.results || data.results.length === 0) {
+    body.innerHTML = `<div class="bm-empty">
+      <strong>No hay benchmarks disponibles.</strong><br><br>
+      Para medir el rendimiento de los modelos, ejecuta en el servidor:
+      <br><br>
+      <code>cd /opt/upc-abet</code><br>
+      <code>./deploy/benchmark-models.sh --json</code><br><br>
+      Esto probará cada modelo con una malla COCO de prueba y medirá
+      velocidad, calidad JSON y uso de VRAM.
+    </div>`;
+    return;
+  }
+
+  const results = data.results;
+  const sourceFile = data.source_file || '?';
+
+  // Encontrar max tokens_per_sec para normalizar barras
+  const maxTps = Math.max(...results.map(r => r.tokens_per_sec || 0), 1);
+  const maxLatency = Math.max(...results.map(r => r.latency_ms || 0), 1);
+
+  // Ordenar por tokens_per_sec descendente
+  const sorted = [...results].sort((a, b) => (b.tokens_per_sec || 0) - (a.tokens_per_sec || 0));
+
+  let html = `
+    <div class="bm-info-bar">
+      <span>📊 <strong>${sorted.length}</strong> modelo(s) probados</span>
+      <span>📁 ${sourceFile}</span>
+      <span>⏱️ Prompt: malla COCO SI (~3500 tokens)</span>
+    </div>
+    <table class="bm-table">
+      <thead>
+        <tr>
+          <th>Modelo</th>
+          <th>Velocidad (tok/seg)</th>
+          <th>Latencia</th>
+          <th>JSON</th>
+          <th>Cursos extraídos</th>
+          <th>VRAM (MB)</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+  for (const r of sorted) {
+    const model = r.model || '?';
+    const tps = r.tokens_per_sec || 0;
+    const latency = r.latency_ms ? `${(r.latency_ms / 1000).toFixed(1)}s` : 'N/A';
+    const vram = r.vram_after_mb != null ? r.vram_after_mb : '—';
+    const jsonValid = r.json_valid;
+    const courses = r.courses_extracted != null ? r.courses_extracted : '—';
+    const status = r.status || '?';
+
+    // Barra de velocidad (verde >50 tok/s, ámbar 25-50, rojo <25)
+    const tpsPct = Math.round((tps / maxTps) * 100);
+    const tpsClass = tps >= 50 ? '' : tps >= 25 ? 'warn' : 'slow';
+
+    // Badge JSON
+    const jsonBadge = jsonValid
+      ? '<span class="bm-badge ok">✓ válido</span>'
+      : '<span class="bm-badge bad">✗ inválido</span>';
+
+    // Badge estado
+    let statusBadge;
+    if (status === 'ok') statusBadge = '<span class="bm-badge ok">OK</span>';
+    else if (status === 'json_invalid') statusBadge = '<span class="bm-badge bad">JSON mal</span>';
+    else if (status === 'error') statusBadge = '<span class="bm-badge bad">error</span>';
+    else statusBadge = `<span class="bm-badge muted">${status}</span>`;
+
+    html += `
+      <tr>
+        <td class="bm-model-name">${model}</td>
+        <td>
+          <div class="bm-bar-wrap">
+            <div class="bm-bar" style="width:120px">
+              <div class="bm-bar-fill ${tpsClass}" style="width:${tpsPct}%"></div>
+            </div>
+            <span class="bm-bar-num">${tps.toFixed(1)}</span>
+          </div>
+        </td>
+        <td>${latency}</td>
+        <td>${jsonBadge}</td>
+        <td>${courses}</td>
+        <td>${vram}</td>
+        <td>${statusBadge}</td>
+      </tr>`;
+  }
+
+  html += `</tbody></table>
+
+    <div class="bm-actions">
+      <button class="bm-btn" onclick="fetchBenchmarkResults()">🔄 Actualizar</button>
+      <button class="bm-btn" onclick="closeBenchmarkModal()">Cerrar</button>
+    </div>
+    <div class="bm-refresh-note">
+      Para ejecutar un nuevo benchmark, usar en el servidor:
+      <code>./deploy/benchmark-models.sh --json</code>
+    </div>`;
+
+  body.innerHTML = html;
+}
 
 // ──────────────────────────────────────────────────────────────
 // Toggles: Usar conocimiento + Búsqueda web + RAG
