@@ -132,6 +132,8 @@ for MODEL in "${MODEL_LIST[@]}"; do
     VRAM_BEFORE=$(get_vram)
 
     # Construir payload
+    # num_ctx=8192: suficiente para el prompt (~1000 tokens), menos VRAM = más rápido
+    # num_predict=8192: suficiente para 80+ cursos en JSON (~8000 tokens output)
     PAYLOAD=$(python3 -c "
 import json, sys
 payload = {
@@ -139,7 +141,7 @@ payload = {
     'messages': [{'role': 'user', 'content': sys.stdin.read()}],
     'stream': False,
     'temperature': 0.1,
-    'options': {'num_ctx': 16384, 'num_predict': 4096},
+    'options': {'num_ctx': 8192, 'num_predict': 8192},
 }
 $(if $FORCE_JSON; then echo "payload['response_format'] = {'type': 'json_object'}"; fi)
 print(json.dumps(payload))
@@ -176,6 +178,7 @@ try:
     usage = d.get('usage', {})
     pt = usage.get('prompt_tokens', 0)
     ct = usage.get('completion_tokens', 0)
+    finish_reason = d.get('choices', [{}])[0].get('finish_reason', 'unknown')
     # validar JSON
     try:
         parsed = json.loads(content)
@@ -186,12 +189,14 @@ try:
         valid = 'false'
         keys = 0
         courses = 0
-    print(f'{pt}|{ct}|{len(content)}|{valid}|{keys}|{courses}')
+    # truncado si finish_reason != 'stop' o JSON no parsea
+    truncated = 'true' if finish_reason != 'stop' else 'false'
+    print(f'{pt}|{ct}|{len(content)}|{valid}|{keys}|{courses}|{finish_reason}|{truncated}')
 except Exception as e:
-    print(f'0|0|0|false|0|0')
+    print(f'0|0|0|false|0|0|error|true')
 " 2>/dev/null)
 
-    IFS='|' read -r OUT_PT OUT_CT OUT_CHARS JSON_VALID JSON_KEYS COURSES <<< "$METRICS"
+    IFS='|' read -r OUT_PT OUT_CT OUT_CHARS JSON_VALID JSON_KEYS COURSES FINISH_REASON TRUNCATED <<< "$METRICS"
 
     # Tokens/seg (output_tokens / latency_seg)
     if [[ "$LATENCY" -gt 0 && "$OUT_CT" -gt 0 ]]; then
@@ -205,14 +210,19 @@ except Exception as e:
     if [[ "$JSON_VALID" == "false" ]]; then
         warn "JSON inválido para $MODEL"
         STATUS="json_invalid"
+    elif [[ "$TRUNCATED" == "true" ]]; then
+        warn "Respuesta truncada para $MODEL (finish_reason=$FINISH_REASON)"
+        STATUS="truncated"
     fi
 
-    RESULT="{\"ts\":\"$TS\",\"model\":\"$MODEL\",\"status\":\"$STATUS\",\"latency_ms\":$LATENCY,\"input_tokens\":${OUT_PT:-$INPUT_TOKENS},\"output_tokens\":${OUT_CT:-0},\"tokens_per_sec\":${TPS:-0},\"vram_before_mb\":${VRAM_BEFORE:-null},\"vram_after_mb\":${VRAM_AFTER:-null},\"json_valid\":${JSON_VALID},\"json_keys\":${JSON_KEYS:-0},\"courses_extracted\":${COURSES:-0}}"
+    RESULT="{\"ts\":\"$TS\",\"model\":\"$MODEL\",\"status\":\"$STATUS\",\"latency_ms\":$LATENCY,\"input_tokens\":${OUT_PT:-$INPUT_TOKENS},\"output_tokens\":${OUT_CT:-0},\"tokens_per_sec\":${TPS:-0},\"vram_before_mb\":${VRAM_BEFORE:-null},\"vram_after_mb\":${VRAM_AFTER:-null},\"json_valid\":${JSON_VALID},\"json_keys\":${JSON_KEYS:-0},\"courses_extracted\":${COURSES:-0},\"finish_reason\":\"${FINISH_REASON:-unknown}\",\"truncated\":${TRUNCATED:-false}}"
     echo "$RESULT" >> "$LOG_FILE"
 
     # Reporte en consola
-    if [[ "$JSON_VALID" == "true" ]]; then
+    if [[ "$JSON_VALID" == "true" && "$TRUNCATED" == "false" ]]; then
         ok "$MODEL — ${LATENCY}ms, ${TPS} tok/s, JSON válido, ${COURSES} cursos, VRAM ${VRAM_AFTER}MB"
+    elif [[ "$TRUNCATED" == "true" ]]; then
+        warn "$MODEL — ${LATENCY}ms, ${TPS} tok/s, TRUNCADO (${COURSES} cursos, finish=$FINISH_REASON), VRAM ${VRAM_AFTER}MB"
     else
         warn "$MODEL — ${LATENCY}ms, ${TPS} tok/s, JSON INVÁLIDO, VRAM ${VRAM_AFTER}MB"
     fi
@@ -235,16 +245,17 @@ with open('$LOG_FILE') as f:
 if not results:
     print('Sin resultados.')
     sys.exit(0)
-print(f'{\"Modelo\":<20} {\"Latencia\":>10} {\"Tok/seg\":>10} {\"JSON\":>6} {\"Cursos\":>8} {\"VRAM MB\":>10}')
-print('─' * 70)
+print(f'{\"Modelo\":<20} {\"Latencia\":>10} {\"Tok/seg\":>10} {\"JSON\":>6} {\"Cursos\":>8} {\"Trunc\":>6} {\"VRAM MB\":>10}')
+print('─' * 76)
 for r in sorted(results, key=lambda x: x.get('tokens_per_sec', 0), reverse=True):
     model = r.get('model', '?')
     lat = f\"{r.get('latency_ms', 0)}ms\" if r.get('latency_ms') else 'N/A'
     tps = f\"{r.get('tokens_per_sec', 0)}\"
     valid = '✓' if r.get('json_valid') else '✗'
     courses = str(r.get('courses_extracted', 0))
+    trunc = 'SÍ' if r.get('truncated') else 'no'
     vram = str(r.get('vram_after_mb', 'N/A'))
-    print(f'{model:<20} {lat:>10} {tps:>10} {valid:>6} {courses:>8} {vram:>10}')
+    print(f'{model:<20} {lat:>10} {tps:>10} {valid:>6} {courses:>8} {trunc:>6} {vram:>10}')
 "
 echo ""
 echo "Resultados guardados en: $LOG_FILE"

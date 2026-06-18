@@ -1480,7 +1480,8 @@ function renderBenchmarkResults(data) {
           <th>Velocidad (tok/seg)</th>
           <th>Latencia</th>
           <th>JSON</th>
-          <th>Cursos extraídos</th>
+          <th>Cursos</th>
+          <th>Trunc</th>
           <th>VRAM (MB)</th>
           <th>Estado</th>
         </tr>
@@ -1495,6 +1496,7 @@ function renderBenchmarkResults(data) {
     const jsonValid = r.json_valid;
     const courses = r.courses_extracted != null ? r.courses_extracted : '—';
     const status = r.status || '?';
+    const truncated = r.truncated;
 
     // Barra de velocidad (verde >50 tok/s, ámbar 25-50, rojo <25)
     const tpsPct = Math.round((tps / maxTps) * 100);
@@ -1505,9 +1507,15 @@ function renderBenchmarkResults(data) {
       ? '<span class="bm-badge ok">✓ válido</span>'
       : '<span class="bm-badge bad">✗ inválido</span>';
 
+    // Badge truncamiento
+    const truncBadge = truncated
+      ? '<span class="bm-badge bad">SÍ</span>'
+      : '<span class="bm-badge ok">no</span>';
+
     // Badge estado
     let statusBadge;
     if (status === 'ok') statusBadge = '<span class="bm-badge ok">OK</span>';
+    else if (status === 'truncated') statusBadge = '<span class="bm-badge bad">truncado</span>';
     else if (status === 'json_invalid') statusBadge = '<span class="bm-badge bad">JSON mal</span>';
     else if (status === 'error') statusBadge = '<span class="bm-badge bad">error</span>';
     else statusBadge = `<span class="bm-badge muted">${status}</span>`;
@@ -1526,6 +1534,7 @@ function renderBenchmarkResults(data) {
         <td>${latency}</td>
         <td>${jsonBadge}</td>
         <td>${courses}</td>
+        <td>${truncBadge}</td>
         <td>${vram}</td>
         <td>${statusBadge}</td>
       </tr>`;
