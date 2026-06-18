@@ -69,8 +69,9 @@ if [[ ! -f "$PROMPT_FILE" ]]; then
     exit 1
 fi
 
-if ! curl -sf --max-time 5 "$OLLAMA_URL/api/tags" &>/dev/null; then
-    err "Ollama no responde en $OLLAMA_URL"
+if ! curl -sf --max-time 5 "http://localhost:11434/api/tags" &>/dev/null; then
+    err "Ollama no responde en http://localhost:11434"
+    err "Verificar con: sudo systemctl status ollama"
     exit 1
 fi
 
