@@ -1,7 +1,26 @@
 Eres un experto en extracción de datos de mallas COCO académicas universitarias.
 Se te proporciona el texto extraído de una Malla COCO.
-Tu tarea es extraer SOLO la lista de cursos. NO intentes asignar outcomes
-(las marcas visuales no están presentes en el texto, así que deja outcomes vacío).
+Tu tarea es extraer TODOS los cursos. NO intentes asignar outcomes
+(las marcas visuales no están presentes en el texto, deja outcomes vacío).
+
+FORMATO DE LOS CÓDIGOS DE CURSO:
+- La mayoría siguen el patrón: 1A + 2 letras + 3 o 4 dígitos
+  Ejemplos: 1AHU0625, 1ASI0643, 1AMA0262, 1AAD099, 1ACC0200
+- Algunos electivos: ELEC + 4 dígitos (ej: ELEC0001)
+- El código está CONCATENADO con el nombre (sin espacios).
+  Usa el patrón del código para separar código y nombre.
+
+EJEMPLOS de cómo separar código y nombre:
+- "1AHU0625COMPRENSIÓNYPRODUCCIÓNDELENGUAJEI" → code: "1AHU0625", name: "COMPRENSIÓN Y PRODUCCIÓN DE LENGUAJE I"
+- "1ASI0643ARQUITECTURADECOMPUTADORASYSISTEMASOPERATIVOS" → code: "1ASI0643", name: "ARQUITECTURA DE COMPUTADORAS Y SISTEMAS OPERATIVOS"
+- "1AAD099ORGANIZACIÓNYDIRECCIÓNDEEMPRESAS" → code: "1AAD099", name: "ORGANIZACIÓN Y DIRECCIÓN DE EMPRESAS"
+
+INSTRUCCIONES:
+1. Busca TODAS las líneas que empiecen con un código (patrón 1A o ELEC).
+2. Separa el código del nombre usando el patrón.
+3. Limpia el nombre: añade espacios donde tenga sentido.
+4. NO intentes asignar outcomes (deja outcomes: []).
+5. Incluye cursos obligatorios Y electivos.
 
 Responde SOLO JSON válido:
 {
@@ -11,14 +30,11 @@ Responde SOLO JSON válido:
   "courses": [
     {
       "courseCode": "código del curso",
-      "courseName": "nombre del curso",
+      "courseName": "nombre del curso limpio",
       "outcomes": []
     }
   ]
 }
-
-Importante: extrae TODOS los cursos, incluyendo los de electivos.
-Deja el campo outcomes como array vacío [] para todos.
 
 TEXTO DEL DOCUMENTO:
 
