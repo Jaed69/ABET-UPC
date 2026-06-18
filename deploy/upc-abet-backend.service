@@ -29,10 +29,12 @@ StartLimitBurst=3
 StartLimitIntervalSec=60
 
 # Seguridad: hardening básico
+# ProtectSystem=full protege /usr, /boot, /efi (read-only) pero deja
+# /opt writable (el backend escribe en logs/, audit_knowledge/,
+# rag/, __pycache__/). No usar "strict" porque bloquea /opt.
 NoNewPrivileges=true
-ProtectSystem=strict
+ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/opt/upc-abet/backend/logs /opt/upc-abet/backend/rag
 PrivateTmp=true
 
 # Logs a journald
